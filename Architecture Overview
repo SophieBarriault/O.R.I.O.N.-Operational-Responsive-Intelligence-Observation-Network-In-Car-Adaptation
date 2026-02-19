@@ -1,0 +1,9 @@
+Microphone Array
+      ↓
+Wake Word Model (TinyML)
+      ↓
+Command Classification Model
+      ↓
+Action Handler
+      ↓
+Audio Response + Hardware Output 
