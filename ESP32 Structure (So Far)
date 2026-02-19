@@ -1,0 +1,168 @@
+#include <Arduino.h>
+#include "TensorFlowLite.h"
+#include "model_data.cc"
+
+#include "driver/i2s.h"
+
+// ------------------- CONFIG -------------------
+
+#define LED_PIN 2
+#define SAMPLE_RATE 16000
+#define I2S_WS  15
+#define I2S_SD  32
+#define I2S_SCK 14
+
+// ------------------- STATE -------------------
+
+enum SystemState {
+  IDLE,
+  LISTENING,
+  PROCESSING,
+  RESPONDING
+};
+
+SystemState currentState = IDLE;
+
+// ------------------- TFLITE VARIABLES -------------------
+
+tflite::MicroInterpreter* interpreter;
+TfLiteTensor* input;
+TfLiteTensor* output;
+
+constexpr int tensorArenaSize = 20 * 1024;
+uint8_t tensorArena[tensorArenaSize];
+
+// ------------------- I2S SETUP -------------------
+
+void setupMicrophone() {
+  i2s_config_t i2s_config = {
+    .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX),
+    .sample_rate = SAMPLE_RATE,
+    .bits_per_sample = I2S_BITS_PER_SAMPLE_32BIT,
+    .channel_format = I2S_CHANNEL_FMT_ONLY_LEFT,
+    .communication_format = I2S_COMM_FORMAT_I2S,
+    .intr_alloc_flags = 0,
+    .dma_buf_count = 4,
+    .dma_buf_len = 256
+  };
+
+  i2s_pin_config_t pin_config = {
+    .bck_io_num = I2S_SCK,
+    .ws_io_num = I2S_WS,
+    .data_out_num = -1,
+    .data_in_num = I2S_SD
+  };
+
+  i2s_driver_install(I2S_NUM_0, &i2s_config, 0, NULL);
+  i2s_set_pin(I2S_NUM_0, &pin_config);
+}
+
+// ------------------- AUDIO CAPTURE -------------------
+
+void captureAudio(float* buffer, int length) {
+  int32_t rawData[length];
+  size_t bytesRead;
+
+  i2s_read(I2S_NUM_0, rawData, sizeof(rawData), &bytesRead, portMAX_DELAY);
+
+  for (int i = 0; i < length; i++) {
+    buffer[i] = rawData[i] / 2147483648.0f; // Normalize
+  }
+}
+
+// ------------------- AI INFERENCE -------------------
+
+int runInference(float* audioBuffer) {
+  for (int i = 0; i < input->bytes / sizeof(float); i++) {
+    input->data.f[i] = audioBuffer[i];
+  }
+
+  if (interpreter->Invoke() != kTfLiteOk) {
+    Serial.println("Inference failed");
+    return -1;
+  }
+
+  int predicted = 0;
+  float maxScore = 0;
+
+  for (int i = 0; i < output->dims->data[1]; i++) {
+    if (output->data.f[i] > maxScore) {
+      maxScore = output->data.f[i];
+      predicted = i;
+    }
+  }
+
+  return predicted;
+}
+
+// ------------------- ACTION HANDLER -------------------
+
+void handleIntent(int intent) {
+  switch(intent) {
+
+    case 0: // Greeting
+      Serial.println("Hello, Crystal.");
+      break;
+
+    case 1: // Turn on LED (simulating car light)
+      digitalWrite(LED_PIN, HIGH);
+      Serial.println("Lights On");
+      break;
+
+    case 2: // System Status
+      Serial.println("System Nominal.");
+      break;
+
+    default:
+      Serial.println("Unknown command.");
+  }
+}
+
+// ------------------- SETUP -------------------
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(LED_PIN, OUTPUT);
+
+  setupMicrophone();
+
+  const tflite::Model* model = tflite::GetModel(g_model);
+  static tflite::MicroMutableOpResolver<5> resolver;
+
+  resolver.AddFullyConnected();
+  resolver.AddSoftmax();
+  resolver.AddReshape();
+  resolver.AddConv2D();
+  resolver.AddDepthwiseConv2D();
+
+  static tflite::MicroInterpreter staticInterpreter(
+    model, resolver, tensorArena, tensorArenaSize);
+
+  interpreter = &staticInterpreter;
+  interpreter->AllocateTensors();
+
+  input = interpreter->input(0);
+  output = interpreter->output(0);
+
+  Serial.println("ORION Car Initialized");
+}
+
+// ------------------- MAIN LOOP -------------------
+
+void loop() {
+
+  static float audioBuffer[16000];
+
+  captureAudio(audioBuffer, 16000);
+
+  currentState = PROCESSING;
+
+  int result = runInference(audioBuffer);
+
+  if (result >= 0) {
+    currentState = RESPONDING;
+    handleIntent(result);
+  }
+
+  currentState = IDLE;
+}
