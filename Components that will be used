@@ -1,0 +1,10 @@
+Components: 
+Microcontroller	- ESP32-S3 (16MB/8MB PSRAM)
+Microphone - INMP441 I2S
+Audio - Amp	MAX98357A
+Speaker	- 3W 4Ω
+Buck Converter	- LM2596 12V→5V
+Fuse	- 1A inline
+TVS Diode	- SMBJ16A
+CAN Module - MCP2515
+Display - 0.96" OLED
