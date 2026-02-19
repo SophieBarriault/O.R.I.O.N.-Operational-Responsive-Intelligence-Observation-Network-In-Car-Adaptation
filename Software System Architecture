@@ -1,0 +1,17 @@
+main.cpp
+│
+├── audio/
+│   ├── microphone.cpp
+│   ├── speaker.cpp
+│
+├── ai/
+│   ├── wake_word.cpp
+│   ├── intent_classifier.cpp
+│   ├── model_data.cc
+│
+├── vehicle/
+│   ├── can_reader.cpp
+│
+├── system/
+│   ├── power_monitor.cpp
+│   ├── state_manager.cpp
